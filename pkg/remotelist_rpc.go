@@ -2,11 +2,13 @@ package remotelist
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 type RemoteList struct {
@@ -34,7 +36,7 @@ func (l *RemoteList) Append(args [2]int, reply *bool) error {
 	instancedList.size++
 	instancedList.mu.Unlock()
 
-	l.logOperation(fmt.Sprintf("append %d %d\n", list_id, value))
+	l.LogOperation(fmt.Sprintf("append %d %d\n", list_id, value))
 
 	*reply = true
 	return nil
@@ -67,7 +69,7 @@ func (l *RemoteList) Remove(list_id int, reply *int) error {
 	instancedList.list = instancedList.list[:n-1]
 	instancedList.size--
 
-	l.logOperation(fmt.Sprintf("remove %d\n", list_id))
+	l.LogOperation(fmt.Sprintf("remove %d\n", list_id))
 
 	return nil
 }
@@ -110,20 +112,34 @@ func NewRemoteList() *RemoteList {
 		lists:   make(map[int]*InstancedList),
 		logFile: f,
 	}
-	rl.rebuildFromLog()
-
+	rl.LoadSnapshot()
+	rl.RebuildFromLog()
+	go rl.RunSnapshotRoutine()
 	return rl
 }
+func (l *RemoteList) RebuildFromLog() {
+	metaData, err := os.ReadFile("snapshot_meta.txt")
+	var snapshotTime int64 = 0
+	if err == nil {
+		snapshotTime, _ = strconv.ParseInt(string(metaData), 10, 64)
+	}
 
-func (l *RemoteList) rebuildFromLog() {
 	scanner := bufio.NewScanner(l.logFile)
-
 	for scanner.Scan() {
 		line := scanner.Text()
 		parts := strings.Fields(line)
 
-		op := parts[0]
-		listID, _ := strconv.Atoi(parts[1])
+		if len(parts) < 2 {
+			continue
+		}
+
+		logTime, _ := strconv.ParseInt(parts[0], 10, 64)
+		if logTime <= snapshotTime {
+			continue
+		}
+
+		op := parts[1]
+		listID, _ := strconv.Atoi(parts[2])
 
 		if _, exists := l.lists[listID]; !exists {
 			l.lists[listID] = &InstancedList{}
@@ -132,7 +148,7 @@ func (l *RemoteList) rebuildFromLog() {
 
 		switch op {
 		case "append":
-			val, _ := strconv.Atoi(parts[2])
+			val, _ := strconv.Atoi(parts[3])
 			l.lists[listID].list = append(l.lists[listID].list, val)
 			l.lists[listID].size++
 		case "remove":
@@ -149,10 +165,80 @@ func (l *RemoteList) rebuildFromLog() {
 	for id, list := range l.lists {
 		fmt.Printf("Lista %d: %v (tamanho: %d)\n", id, list.list, list.size)
 	}
+
 }
 
-func (l *RemoteList) logOperation(op string) {
-	l.logFile.WriteString(op)
+func (l *RemoteList) LogOperation(op string) {
+	timestamp := time.Now().UnixNano()
+	logLine := fmt.Sprintf("%d %s", timestamp, op)
+	l.logFile.WriteString(logLine + "\n")
+}
+
+func (l *RemoteList) SaveSnapshot() error {
+	l.mu.Lock()
+
+	listsCopy := make(map[int][]int)
+	for id, inst := range l.lists {
+		inst.mu.Lock()
+		listCopy := make([]int, len(inst.list))
+		copy(listCopy, inst.list)
+		listsCopy[id] = listCopy
+		inst.mu.Unlock()
+	}
+	l.mu.Unlock()
+
+	f, err := os.Create("snapshot.json")
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	metaFile, err := os.Create("snapshot_meta.txt")
+	if err != nil {
+		return err
+	}
+	defer metaFile.Close()
+
+	_, err = fmt.Fprintf(metaFile, "%d", time.Now().UnixNano())
+	encoder := json.NewEncoder(f)
+	return encoder.Encode(listsCopy)
+}
+
+func (l *RemoteList) LoadSnapshot() {
+	f, err := os.Open("snapshot.json")
+	if err != nil {
+		return
+	}
+	defer f.Close()
+
+	var snapshot map[int][]int
+	decoder := json.NewDecoder(f)
+	if err := decoder.Decode(&snapshot); err != nil {
+		return
+	}
+
+	for id, values := range snapshot {
+		inst := &InstancedList{
+			list: values,
+			size: uint32(len(values)),
+		}
+		l.lists[id] = inst
+		l.size++
+	}
+}
+
+func (l *RemoteList) RunSnapshotRoutine() {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		err := l.SaveSnapshot()
+		if err != nil {
+			fmt.Println("Erro ao salvar snapshot:", err)
+		} else {
+			fmt.Println("Snapshot salvo com sucesso.")
+		}
+	}
 }
 
 func (l *RemoteList) Close() {

@@ -106,7 +106,7 @@ func (l *RemoteList) AddList(_ struct{}, reply *int) error {
 }
 
 func NewRemoteList() *RemoteList {
-	f, _ := os.OpenFile("log.txt", os.O_APPEND|os.O_CREATE|os.O_RDWR, 0644)
+	f, _ := os.OpenFile("/app/data/log.txt", os.O_APPEND|os.O_CREATE|os.O_RDWR, 0644)
 
 	rl := &RemoteList{
 		lists:   make(map[int]*InstancedList),
@@ -118,7 +118,7 @@ func NewRemoteList() *RemoteList {
 	return rl
 }
 func (l *RemoteList) RebuildFromLog() {
-	metaData, err := os.ReadFile("snapshot_meta.txt")
+	metaData, err := os.ReadFile("/app/data/snapshot_meta.txt")
 	var snapshotTime int64 = 0
 	if err == nil {
 		snapshotTime, _ = strconv.ParseInt(string(metaData), 10, 64)
@@ -187,13 +187,13 @@ func (l *RemoteList) SaveSnapshot() error {
 	}
 	l.mu.Unlock()
 
-	f, err := os.Create("snapshot.json")
+	f, err := os.Create("/app/data/snapshot.json")
 	if err != nil {
 		return err
 	}
 	defer f.Close()
 
-	metaFile, err := os.Create("snapshot_meta.txt")
+	metaFile, err := os.Create("/app/data/napshot_meta.txt")
 	if err != nil {
 		return err
 	}
@@ -205,7 +205,7 @@ func (l *RemoteList) SaveSnapshot() error {
 }
 
 func (l *RemoteList) LoadSnapshot() {
-	f, err := os.Open("snapshot.json")
+	f, err := os.Open("/app/data/snapshot.json")
 	if err != nil {
 		return
 	}

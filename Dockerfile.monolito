@@ -1,0 +1,16 @@
+FROM rpc-go-base
+
+WORKDIR /app
+
+COPY . /app
+
+RUN go build -o server remotelist_rpc_server.go remotelist_rpc.go
+RUN go build -o client remotelist_rpc_client.go
+
+EXPOSE 5000
+
+VOLUME ["/app/data"]
+
+CMD ["./server"]
+
+ENTRYPOINT ["./server"]

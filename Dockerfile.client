@@ -1,0 +1,9 @@
+FROM gabri/rpc-go-base:latest
+
+WORKDIR /app
+
+COPY remotelist_rpc_client.go go.mod go.sum ./
+
+RUN go build -o client remotelist_rpc_client.go
+
+ENTRYPOINT ["./client"]

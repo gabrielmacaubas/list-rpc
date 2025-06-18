@@ -1,0 +1,13 @@
+FROM gabri/rpc-go-base:latest
+
+WORKDIR /app
+
+COPY remotelist_rpc_server.go remotelist_rpc.go go.mod go.sum ./
+
+RUN go build -o server remotelist_rpc_server.go
+
+VOLUME ["/app/data"]
+
+EXPOSE 5000
+
+ENTRYPOINT ["./server"]
